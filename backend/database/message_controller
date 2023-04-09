@@ -1,0 +1,78 @@
+package database
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GET /messages
+// Get all messages
+func FindMessages(c *gin.Context) {
+	var messages []Message
+	DB.Find(&messages)
+
+	c.JSON(http.StatusOK, gin.H{"data": messages})
+}
+
+// GET /messages/:id
+// Get a message by ID
+func FindMessage(c *gin.Context) {
+	var message Message
+
+	if err := DB.Where("id = ?", c.Param("id")).First(&message).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": message})
+}
+
+// POST /messages
+// Create a new message
+func CreateMessage(c *gin.Context) {
+	var input CreateMessageInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	message := Message{Text: input.Text, SenderID: input.SenderID, RoomID: input.RoomID}
+	DB.Create(&message)
+
+	c.JSON(http.StatusOK, gin.H{"data": message})
+}
+
+// PATCH /messages/:id
+// Update a message by ID
+func UpdateMessage(c *gin.Context) {
+	var message Message
+	if err := DB.Where("id = ?", c.Param("id")).First(&message).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message not found"})
+		return
+	}
+
+	var input CreateMessageInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	DB.Model(&message).Updates(Message{Text: input.Text})
+
+	c.JSON(http.StatusOK, gin.H{"data": message})
+}
+
+// DELETE /messages/:id
+// Delete a message by ID
+func DeleteMessage(c *gin.Context) {
+	var message Message
+	if err := DB.Where("id = ?", c.Param("id")).First(&message).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message not found"})
+		return
+	}
+
+	DB.Delete(&message)
+
+	c.JSON(http.StatusOK, gin.H{"data": true})
+}

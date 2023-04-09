@@ -1,0 +1,103 @@
+package database
+
+import (
+	"net/http"
+	"sync"
+
+	"github.com/gorilla/websocket"
+)
+
+type Hub struct {
+	clients    map[*Clients]bool
+	broadcast  chan []byte
+	register   chan *Clients
+	unregister chan *Clients
+	mutex      sync.Mutex
+}
+
+func NewHub() *Hub {
+	return &Hub{
+		clients:    make(map[*Clients]bool),
+		broadcast:  make(chan []byte),
+		register:   make(chan *Clients),
+		unregister: make(chan *Clients),
+	}
+}
+
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mutex.Lock()
+			h.clients[client] = true
+			h.mutex.Unlock()
+		case client := <-h.unregister:
+			h.mutex.Lock()
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.Send)
+			}
+			h.mutex.Unlock()
+		case message := <-h.broadcast:
+			h.mutex.Lock()
+			for client := range h.clients {
+				select {
+				case client.Send <- message:
+				default:
+					close(client.Send)
+					delete(h.clients, client)
+				}
+			}
+			h.mutex.Unlock()
+		}
+	}
+}
+
+func (c *Clients) Readh() {
+	defer func() {
+		c.hub.unregister <- c
+		c.Conn.Close()
+	}()
+	for {
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		c.hub.broadcast <- message
+	}
+}
+
+func (c *Clients) Writeh() {
+	defer func() {
+		c.Conn.Close()
+	}()
+	for {
+		select {
+		case message, ok := <-c.Send:
+			if !ok {
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			c.Conn.WriteMessage(websocket.TextMessage, message)
+		}
+	}
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func ServeWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	client := &Clients{hub: hub, Conn: conn, Send: make(chan []byte, 256)}
+	client.hub.register <- client
+	go client.Writeh()
+	client.Readh()
+}

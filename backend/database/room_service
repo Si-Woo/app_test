@@ -1,0 +1,51 @@
+package database
+
+import (
+	"errors"
+	"log"
+)
+
+type RoomService struct {
+}
+
+func NewRoomService() *RoomService {
+	return &RoomService{}
+}
+
+// GetRoomByID returns the room with the specified ID.
+func (rs *RoomService) GetRoomByID(id uint) (*Room, error) {
+	var room Room
+	err := DB.First(&room, id).Error
+	if err != nil {
+		log.Printf("Error retrieving room with ID %d: %s", id, err.Error())
+		return nil, errors.New("room not found")
+	}
+	return &room, nil
+}
+
+// CreateRoom creates a new room with the specified input.
+func (rs *RoomService) CreateRoom(input *CreateRoomInput) (*Room, error) {
+	room := &Room{
+		Name: input.Name,
+	}
+	if err := DB.Create(room).Error; err != nil {
+		log.Printf("Error creating room: %s", err.Error())
+		return nil, err
+	}
+	return room, nil
+}
+
+// UpdateRoom updates the room with the specified ID with the given input.
+func (rs *RoomService) UpdateRoom(id uint, input *UpdateRoomInput) (*Room, error) {
+	room, err := rs.GetRoomByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	room.Name = input.Name
+	if err := DB.Save(room).Error; err != nil {
+		log.Printf("Error updating room: %s", err.Error())
+		return nil, err
+	}
+	return room, nil
+}

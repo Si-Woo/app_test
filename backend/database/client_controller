@@ -1,0 +1,94 @@
+package database
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+type CreateClientInput struct {
+	Username string `json:"username" binding:"required"`
+}
+
+type UpdateClientInput struct {
+	Username string `json:"username"`
+}
+
+// GET /clients
+// Get all clients
+func FindClients(c *gin.Context) {
+	var clients []Client
+	DB.Find(&clients)
+
+	c.JSON(http.StatusOK, gin.H{"data": clients})
+}
+
+// GET /clients/:id
+// Get a client by id
+func FindClient(c *gin.Context) {
+	// Get model if exist
+	var client Client
+	if err := DB.Where("id = ?", c.Param("id")).First(&client).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Client not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": client})
+}
+
+// POST /clients
+// Create new client
+func CreateClient(c *gin.Context) {
+	// Validate input
+	var input CreateClientInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create client
+	client := Client{Username: input.Username}
+	DB.Create(&client)
+
+	c.JSON(http.StatusOK, gin.H{"data": client})
+}
+
+// PATCH /clients/:id
+// Update a client
+func UpdateClient(c *gin.Context) {
+	// Get model if exist
+	var client Client
+	if err := DB.Where("user_id = ?", c.Param("id")).First(&client).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Client not found"})
+		return
+	}
+
+	// Validate input
+	var input UpdateClientInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update client
+	client.Username = input.Username
+	DB.Save(&client)
+
+	c.JSON(http.StatusOK, gin.H{"data": client})
+}
+
+// DELETE /clients/:id
+// Delete a client
+func DeleteClient(c *gin.Context) {
+	// Get model if exist
+	var client Client
+	if err := DB.Where("id = ?", c.Param("id")).First(&client).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Client not found"})
+		return
+	}
+
+	// Delete client
+	DB.Delete(&client)
+
+	c.JSON(http.StatusOK, gin.H{"data": true})
+}

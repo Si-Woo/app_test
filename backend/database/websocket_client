@@ -1,0 +1,113 @@
+package database
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
+
+// type Client struct {
+// 	ID        string          // 클라이언트 고유 ID
+// 	Username  string          // username
+// 	Conn      *websocket.Conn // WebSocket 연결 객체
+// 	Send      chan []byte     // 메시지를 보낼 채널
+// 	RoomID    string          // 속한 채팅방 ID
+// 	IsWriting bool            // 메시지 쓰는 중인지 여부
+// }
+
+func NewClient(w http.ResponseWriter, r *http.Request, hub *Hub, roomID string) (*Clients, error) {
+	// WebSocket handshake 수행
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// 고유한 ID 생성
+	id := uuid.New().String()
+
+	// 새로운 클라이언트 객체 생성
+	client := &Clients{
+		ID:   id,
+		Conn: conn,
+		Send: make(chan []byte, 256),
+	}
+
+	// Hub에 새로운 클라이언트 등록
+	hub.register <- client
+
+	// 클라이언트 연결 메시지 출력
+	fmt.Printf("Client connected: %s\n", id)
+
+	return client, nil
+}
+
+func (c *Clients) Read(hub *Hub) {
+	defer func() {
+		// 클라이언트 연결 종료 처리
+		hub.unregister <- c
+		c.Conn.Close()
+	}()
+
+	for {
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil {
+			// 연결이 끊어진 경우, unregister 채널에 클라이언트 등록
+			hub.unregister <- c
+			break
+		}
+
+		// 메시지를 broadcast 채널로 전송
+		msgBytes, err := json.Marshal(&Message{SenderID: c.ID, RoomID: c.RoomID, Text: string(message)})
+		if err != nil {
+			return
+		}
+		hub.broadcast <- msgBytes
+	}
+}
+
+func (c *Clients) Write() {
+	defer func() {
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		// 보낼 메시지가 있는 경우
+		case message, ok := <-c.Send:
+			if !ok {
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			// 메시지 전송
+			w, err := c.Conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+
+			// 보류 중인 모든 메시지 전송
+			n := len(c.Send)
+			for i := 0; i < n; i++ {
+				w.Write([]byte{'\n'})
+				w.Write(<-c.Send)
+			}
+
+			if err := w.Close(); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (c *Clients) SendMessage(message []byte) {
+	c.Send <- message
+}

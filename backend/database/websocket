@@ -1,0 +1,157 @@
+package database
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+// WebSocket 핸들러
+func handleWebSocket(c *gin.Context) {
+	// WebSocket 연결 업그레이드
+	upgrader := websocket.Upgrader{}
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	// 사용자 인증
+	userID := c.Param("user_id")
+	user, err := findUserByID(userID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	// WebSocket 채팅룸 입장
+	room := chatRoomManager.getRoom(user.UserID)
+	room.join(user, conn)
+
+	// WebSocket 메시지 수신 루프
+	for {
+		messageType, p, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			break
+		}
+		message := string(p)
+		log.Println(message)
+
+		// 메시지 처리
+		err = handleMessage(user, message)
+		if err != nil {
+			log.Println(err)
+			break
+		}
+	}
+
+	// WebSocket 채팅룸 퇴장
+	room.leave(user)
+}
+
+// ChatRoomManager 객체 생성
+var chatRoomManager = &ChatRoomManager{rooms: make(map[string]*ChatRoom)}
+
+// User ID로 User 찾기
+func findUserByID(userID string) (*User, error) {
+	var user User
+	err := DB.First(&user, "id = ?", userID).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to find user with ID %s: %v", userID, err)
+	}
+	return &user, nil
+}
+
+// 메시지 처리
+func handleMessage(user *User, message string) error {
+	// 메시지 파싱
+	var parsedMessage struct {
+		To      string `json:"to"`
+		Content string `json:"content"`
+	}
+	err := json.Unmarshal([]byte(message), &parsedMessage)
+	if err != nil {
+		return fmt.Errorf("failed to parse message: %v", err)
+	}
+
+	// 대상 사용자 찾기
+	var toUser User
+	err = DB.First(&toUser, "id = ?", parsedMessage.To).Error
+	if err != nil {
+		return fmt.Errorf("failed to find user with ID %d: %v", parsedMessage.To, err)
+	}
+
+	// 메시지 DB에 저장
+	DB.Create(&Message{
+		From:    user.UserID,
+		To:      parsedMessage.To,
+		Content: parsedMessage.Content,
+	})
+
+	// 대상 사용자에게 메시지 전송
+	room := chatRoomManager.getRoom(toUser.UserID)
+	room.broadcast(parsedMessage.Content)
+
+	return nil
+}
+
+// ChatRoomManager에서 ChatRoom 가져오기
+func (crm *ChatRoomManager) getRoom(userID string) *ChatRoom {
+	room, ok := crm.rooms[userID]
+	if !ok {
+		room = &ChatRoom{
+			users: make(map[string]*User),
+			conns: make(map[*websocket.Conn]bool),
+		}
+		crm.rooms[userID] = room
+	}
+	return room
+}
+
+// ChatRoom에 사용자 추가
+func (cr *ChatRoom) join(user *User, conn *websocket.Conn) {
+	cr.users[user.UserID] = user
+	cr.conns[conn] = true
+}
+
+// ChatRoom에서 사용자 제거
+func (cr *ChatRoom) leave(user *User) {
+	delete(cr.users, user.UserID)
+	for conn := range cr.conns {
+		if cr.isUserInRoom(conn, user.UserID) {
+			delete(cr.conns, conn)
+			conn.Close()
+		}
+	}
+}
+
+// ChatRoom에서 모든 사용자에게 메시지 전송
+func (cr *ChatRoom) broadcast(message string) {
+	for conn := range cr.conns {
+		err := conn.WriteMessage(websocket.TextMessage, []byte(message))
+		if err != nil {
+			log.Println(err)
+			conn.Close()
+			delete(cr.conns, conn)
+		}
+	}
+}
+
+// ChatRoom에서 사용자가 속한지 확인
+func (cr *ChatRoom) isUserInRoom(conn *websocket.Conn, userID string) bool {
+	user, ok := cr.users[userID]
+	if !ok {
+		return false
+	}
+	for c := range cr.conns {
+		if c == conn {
+			return true
+		}
+	}
+	return false
+}

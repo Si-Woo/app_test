@@ -1,0 +1,38 @@
+package database
+
+import (
+	"errors"
+	"log"
+)
+
+type MessageService struct {
+}
+
+func NewMessageService() *MessageService {
+	return &MessageService{}
+}
+
+// GetMessagesByRoomID returns all messages in the room with the specified ID.
+func (ms *MessageService) GetMessagesByRoomID(roomID uint) ([]*Message, error) {
+	var messages []*Message
+	err := DB.Where("room_id = ?", roomID).Find(&messages).Error
+	if err != nil {
+		log.Printf("Error retrieving messages for room with ID %d: %s", roomID, err.Error())
+		return nil, errors.New("messages not found")
+	}
+	return messages, nil
+}
+
+// CreateMessage creates a new message in the room with the specified ID.
+func (ms *MessageService) CreateMessage(roomID uint, input *CreateMessageInput) (*Message, error) {
+	message := &Message{
+		RoomID:   roomID,
+		Text:     input.Text,
+		SenderID: input.SenderID,
+	}
+	if err := DB.Create(message).Error; err != nil {
+		log.Printf("Error creating message: %s", err.Error())
+		return nil, err
+	}
+	return message, nil
+}

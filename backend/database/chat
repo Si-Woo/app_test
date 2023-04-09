@@ -1,0 +1,72 @@
+package database
+
+import (
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+type Room struct {
+	ID        uint      `gorm:"primary_key" json:"id"`
+	Name      string    `gorm:"not null" json:"name"`
+	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_at"`
+	UpdatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"updated_at"`
+	Clients   []Client  `gorm:"many2many:room_clients;" json:"clients"`
+}
+
+type CreateRoomInput struct {
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	CreatorID   uint   `json:"creator_id" binding:"required"`
+}
+
+type UpdateRoomInput struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func (r *Room) TableName() string {
+	return "rooms"
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+type Client struct {
+	ID        string          // 클라이언트 고유 ID
+	Username  string          // username
+	Conn      *websocket.Conn // WebSocket 연결 객체
+	RoomID    string          // 속한 채팅방 ID
+	IsWriting bool            // 메시지 쓰는 중인지 여부
+}
+type Clients struct {
+	ID        string          // 클라이언트 고유 ID
+	Username  string          // username
+	Conn      *websocket.Conn // WebSocket 연결 객체
+	Send      chan []byte     // 메시지를 보낼 채널
+	RoomID    uint            // 속한 채팅방 ID
+	hub       *Hub            // hub
+	IsWriting bool            // 메시지 쓰는 중인지 여부
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+type Message struct {
+	ID        uint      `json:"id" gorm:"primary_key"`
+	Text      string    `json:"text"`
+	SenderID  string    `json:"sender_id"`
+	RoomID    uint      `json:"room_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type CreateMessageInput struct {
+	Text     string `json:"text" binding:"required"`
+	SenderID string `json:"sender_id" binding:"required"`
+	RoomID   uint   `json:"room_id" binding:"required"`
+}
+
+func (m *Message) TableName() string {
+	return "messages"
+}
+
+/////////////////////////////////////////////////////////////////////////////

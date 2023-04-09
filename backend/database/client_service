@@ -1,0 +1,61 @@
+package database
+
+import (
+	"errors"
+	"log"
+)
+
+type ClientService struct {
+}
+
+func NewClientService() *ClientService {
+	return &ClientService{}
+}
+
+// GetClientByID returns the client with the specified ID.
+func (cs *ClientService) GetClientByID(clientID uint) (*Client, error) {
+	var client Client
+	err := DB.First(&client, clientID).Error
+	if err != nil {
+		log.Printf("Error retrieving client with ID %d: %s", clientID, err.Error())
+		return nil, errors.New("client not found")
+	}
+	return &client, nil
+}
+
+// CreateClient creates a new client with the specified name.
+func (cs *ClientService) CreateClient(name string) (*Client, error) {
+	client := &Client{Username: name}
+	if err := DB.Create(client).Error; err != nil {
+		log.Printf("Error creating client: %s", err.Error())
+		return nil, err
+	}
+	return client, nil
+}
+
+// UpdateClient updates the client with the specified ID with the given input values.
+func (cs *ClientService) UpdateClient(clientID uint, input *UpdateClientInput) (*Client, error) {
+	client, err := cs.GetClientByID(clientID)
+	if err != nil {
+		return nil, err
+	}
+	client.Username = input.Username
+	if err := DB.Save(client).Error; err != nil {
+		log.Printf("Error updating client with ID %d: %s", clientID, err.Error())
+		return nil, err
+	}
+	return client, nil
+}
+
+// DeleteClient deletes the client with the specified ID.
+func (cs *ClientService) DeleteClient(clientID uint) error {
+	client, err := cs.GetClientByID(clientID)
+	if err != nil {
+		return err
+	}
+	if err := DB.Delete(client).Error; err != nil {
+		log.Printf("Error deleting client with ID %d: %s", clientID, err.Error())
+		return err
+	}
+	return nil
+}
